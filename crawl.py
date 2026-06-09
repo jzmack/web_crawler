@@ -52,3 +52,12 @@ def get_images_from_html(html:str , base_url:str) -> list[str]:
             parsed_link = image_link.get("src")
             image_list.append(urljoin(base_url, parsed_link))
     return image_list
+
+def extract_page_data(html:str, page_url:str):
+    return {
+        "url": page_url,
+        "heading": get_heading_from_html(html),
+        "first_paragraph": get_first_paragraph_from_html(html),
+        "outgoing_links": get_urls_from_html(html, page_url),
+        "image_urls": get_images_from_html(html, page_url)
+    }
