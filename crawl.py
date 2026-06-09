@@ -1,5 +1,6 @@
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup, Tag
+import requests
 
 def normalize_url(url: str) -> str:
     parsed_url = urlparse(url)
@@ -53,7 +54,7 @@ def get_images_from_html(html:str , base_url:str) -> list[str]:
             image_list.append(urljoin(base_url, parsed_link))
     return image_list
 
-def extract_page_data(html:str, page_url:str):
+def extract_page_data(html:str, page_url:str) -> dict:
     return {
         "url": page_url,
         "heading": get_heading_from_html(html),
@@ -61,3 +62,20 @@ def extract_page_data(html:str, page_url:str):
         "outgoing_links": get_urls_from_html(html, page_url),
         "image_urls": get_images_from_html(html, page_url)
     }
+
+def get_html(url:str) -> str:
+    try:
+        response = requests.get(url, headers={"User-Agent": "BootCrawler/1.0"})
+    except Exception as e:
+        raise Exception(f"Error while connecting to URL: {e}")    
+   
+    if response.status_code >= 400:
+        raise Exception(f"Error with client: {response.status_code}")
+    
+    content_type = response.headers.get("content-type")
+    if content_type is None:
+        content_type = ""
+    if "text/html" not in content_type:
+        raise Exception(f"Error incorrect header type: {response.headers.get('content-type')}")
+   
+    return response.text
