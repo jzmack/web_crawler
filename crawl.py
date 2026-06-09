@@ -6,3 +6,6 @@ def normalize_url(url: str) -> str:
     normalized_string = (parsed_url.netloc + parsed_url.path).rstrip("/").strip().lower()
     print(normalized_string)
     return normalized_string 
+
+def get_heading_from_html(url: str) -> str:
+    return
