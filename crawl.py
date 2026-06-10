@@ -1,6 +1,119 @@
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup, Tag
 import requests
+import asyncio
+import aiohttp
+
+class AsyncCrawler:
+    def __init__(self, base_url, base_domain, max_concurrency):
+        self.base_url = base_url
+        self.base_domain = base_domain
+        self.max_concurrency = max_concurrency
+        self.page_data = {}
+        self.lock = asyncio.Lock()
+        self.semaphore = asyncio.Semaphore(max_concurrency)
+        self.session = None
+    
+    async def __aenter__(self):
+        self.session = aiohttp.ClientSession()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.session.close()
+
+    async def add_page_visit(self, normalized_url):
+        async with self.lock:
+            if normalized_url not in self.page_data:
+                self.page_data[normalized_url] = {}
+                return True
+            else:
+                return False
+
+    async def get_html(self, url:str):
+        async with self.session.get(url) as response:
+            if response.status >= 400:
+                raise Exception(f"Error with client: {response.status}")
+            
+            content_type = response.content_type
+            if content_type is None:
+                content_type = ""
+            if "text/html" not in content_type:
+                raise Exception(f"Incorrect header type: {response.content_type}")
+
+            return await response.text()
+    
+    async def crawl_page(self, current_url):
+        parsed_base = urlparse(self.base_url)
+        parsed_current = urlparse(current_url)
+        if parsed_base.netloc != parsed_current.netloc:
+            return
+
+        normalized_url = normalize_url(current_url)
+        first_time = await self.add_page_visit(normalized_url)
+        if first_time is False:
+            return
+
+        try:
+            async with self.semaphore:
+                current_html = await self.get_html(current_url)
+                async with self.lock:
+                    self.page_data[normalized_url] = extract_page_data(current_html, current_url)
+                url_list = get_urls_from_html(current_html, self.base_url)
+        except Exception as e:
+            print(f"Error: {e}")
+            return
+        
+        tasks = []
+        for url in url_list:
+            tasks.append(asyncio.create_task(self.crawl_page(url)))
+            
+        await asyncio.gather(*tasks)
+
+def crawl_page(base_url, current_url=None, page_data=None):
+    if current_url == None:
+        current_url = base_url
+
+    if page_data == None:
+        page_data = {}
+
+    parsed_current = urlparse(current_url)
+    parsed_base = urlparse(base_url)
+
+    if parsed_current.netloc != parsed_base.netloc:
+       return page_data 
+
+    normalized_current = normalize_url(current_url)
+
+    if normalized_current in page_data:
+        return page_data
+    
+    print(f"Currently crawling: {current_url}")
+    current_html = get_html(current_url)
+    
+    page_data[normalized_current] = extract_page_data(current_html, normalized_current)
+
+    urls = get_urls_from_html(current_html, base_url)
+
+    for url in urls:
+        page_data = crawl_page(base_url, url, page_data)
+    
+    return page_data
+def get_html(url:str) -> str:
+    try:
+        response = requests.get(url, headers={"User-Agent": "BootCrawler/1.0"})
+    except Exception as e:
+        raise Exception(f"Error while connecting to URL: {e}")    
+   
+    if response.status_code >= 400:
+        raise Exception(f"Error with client: {response.status_code}")
+    
+    content_type = response.headers.get("content-type")
+    if content_type is None:
+        content_type = ""
+    if "text/html" not in content_type:
+        raise Exception(f"Error incorrect header type: {response.headers.get('content-type')}")
+   
+    return response.text
 
 def normalize_url(url: str) -> str:
     parsed_url = urlparse(url)
@@ -63,49 +176,3 @@ def extract_page_data(html:str, page_url:str) -> dict:
         "image_urls": get_images_from_html(html, page_url)
     }
 
-def get_html(url:str) -> str:
-    try:
-        response = requests.get(url, headers={"User-Agent": "BootCrawler/1.0"})
-    except Exception as e:
-        raise Exception(f"Error while connecting to URL: {e}")    
-   
-    if response.status_code >= 400:
-        raise Exception(f"Error with client: {response.status_code}")
-    
-    content_type = response.headers.get("content-type")
-    if content_type is None:
-        content_type = ""
-    if "text/html" not in content_type:
-        raise Exception(f"Error incorrect header type: {response.headers.get('content-type')}")
-   
-    return response.text
-
-def crawl_page(base_url, current_url=None, page_data=None):
-    if current_url == None:
-        current_url = base_url
-
-    if page_data == None:
-        page_data = {}
-
-    parsed_current = urlparse(current_url)
-    parsed_base = urlparse(base_url)
-
-    if parsed_current.netloc != parsed_base.netloc:
-       return page_data 
-
-    normalized_current = normalize_url(current_url)
-
-    if normalized_current in page_data:
-        return page_data
-    
-    print(f"Currently crawling: {current_url}")
-    current_html = get_html(current_url)
-    
-    page_data[normalized_current] = extract_page_data(current_html, normalized_current)
-
-    urls = get_urls_from_html(current_html, base_url)
-
-    for url in urls:
-        page_data = crawl_page(base_url, url, page_data)
-    
-    return page_data
