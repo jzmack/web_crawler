@@ -5,13 +5,13 @@ import asyncio
 import aiohttp
 
 class AsyncCrawler:
-    def __init__(self, base_url, base_domain, max_concurrency):
+    def __init__(self, base_url):
         self.base_url = base_url
-        self.base_domain = base_domain
-        self.max_concurrency = max_concurrency
+        self.base_domain = urlparse(base_url).netloc
+        self.max_concurrency = 3
         self.page_data = {}
         self.lock = asyncio.Lock()
-        self.semaphore = asyncio.Semaphore(max_concurrency)
+        self.semaphore = asyncio.Semaphore(self.max_concurrency)
         self.session = None
     
     async def __aenter__(self):
@@ -24,28 +24,27 @@ class AsyncCrawler:
     async def add_page_visit(self, normalized_url):
         async with self.lock:
             if normalized_url not in self.page_data:
-                self.page_data[normalized_url] = {}
                 return True
             else:
                 return False
 
     async def get_html(self, url:str):
-        async with self.session.get(url) as response:
+        async with self.session.get(
+            url,
+            headers={"User-Agent": "BootCrawler/1.0"}) as response:
             if response.status >= 400:
-                raise Exception(f"Error with client: {response.status}")
-            
-            content_type = response.content_type
-            if content_type is None:
-                content_type = ""
+                return None
+
+            content_type = response.headers.get("content-type", "")
             if "text/html" not in content_type:
-                raise Exception(f"Incorrect header type: {response.content_type}")
+                print(f"Error: Not HTML content {content_type} for {url}")
+                return None
 
             return await response.text()
     
     async def crawl_page(self, current_url):
-        parsed_base = urlparse(self.base_url)
         parsed_current = urlparse(current_url)
-        if parsed_base.netloc != parsed_current.netloc:
+        if self.base_domain != parsed_current.netloc:
             return
 
         normalized_url = normalize_url(current_url)
@@ -55,9 +54,13 @@ class AsyncCrawler:
 
         try:
             async with self.semaphore:
+                print(f"Crawling: {current_url} - (Active: {self.max_concurrency - self.semaphore._value})")
                 current_html = await self.get_html(current_url)
+                if current_html is None:
+                    return
+                page_info = extract_page_data(current_html, current_url)
                 async with self.lock:
-                    self.page_data[normalized_url] = extract_page_data(current_html, current_url)
+                    self.page_data[normalized_url] = page_info
                 url_list = get_urls_from_html(current_html, self.base_url)
         except Exception as e:
             print(f"Error: {e}")
@@ -66,9 +69,21 @@ class AsyncCrawler:
         tasks = []
         for url in url_list:
             tasks.append(asyncio.create_task(self.crawl_page(url)))
-            
-        await asyncio.gather(*tasks)
 
+        if tasks:
+            await asyncio.gather(*tasks)
+    
+    async def crawl(self):
+        await self.crawl_page(self.base_url)
+        return self.page_data 
+    
+async def crawl_site_async(base_url):
+    async with AsyncCrawler(base_url) as crawler:
+        page_data = await crawler.crawl()
+        return page_data
+
+# below is the old function, I'm keeping it here because it works
+# but current version should be using the async functions
 def crawl_page(base_url, current_url=None, page_data=None):
     if current_url == None:
         current_url = base_url
@@ -98,6 +113,8 @@ def crawl_page(base_url, current_url=None, page_data=None):
         page_data = crawl_page(base_url, url, page_data)
     
     return page_data
+
+# another function that works, replaced by async function
 def get_html(url:str) -> str:
     try:
         response = requests.get(url, headers={"User-Agent": "BootCrawler/1.0"})
