@@ -79,3 +79,33 @@ def get_html(url:str) -> str:
         raise Exception(f"Error incorrect header type: {response.headers.get('content-type')}")
    
     return response.text
+
+def crawl_page(base_url, current_url=None, page_data=None):
+    if current_url == None:
+        current_url = base_url
+
+    if page_data == None:
+        page_data = {}
+
+    parsed_current = urlparse(current_url)
+    parsed_base = urlparse(base_url)
+
+    if parsed_current.netloc != parsed_base.netloc:
+       return page_data 
+
+    normalized_current = normalize_url(current_url)
+
+    if normalized_current in page_data:
+        return page_data
+    
+    print(f"Currently crawling: {current_url}")
+    current_html = get_html(current_url)
+    
+    page_data[normalized_current] = extract_page_data(current_html, normalized_current)
+
+    urls = get_urls_from_html(current_html, base_url)
+
+    for url in urls:
+        page_data = crawl_page(base_url, url, page_data)
+    
+    return page_data

@@ -1,4 +1,4 @@
-from crawl import get_html
+from crawl import crawl_page 
 import sys
 
 def main():
@@ -14,12 +14,12 @@ def main():
         base_url = sys.argv[1]
         print(f"starting crawl of: {base_url}")
     
-    try:
-        html = get_html(base_url)
-    except Exception as e:
-        print(f"Error fetching HTML from {base_url}: {e}")
+    collected_pages = crawl_page(base_url)
+    print(f"Crawler found {len(collected_pages)} pages.")
 
-    print(get_html(base_url))
+    for url, data in collected_pages.items():
+        print(f"URL: {url}")
+        print(f"Heading: {data['heading']}")
 
     sys.exit(0)
 
